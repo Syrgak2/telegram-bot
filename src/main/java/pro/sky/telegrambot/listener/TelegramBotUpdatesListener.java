@@ -5,18 +5,19 @@ import com.pengrad.telegrambot.UpdatesListener;
 import com.pengrad.telegrambot.model.Update;
 import com.pengrad.telegrambot.request.SendMessage;
 import com.pengrad.telegrambot.response.SendResponse;
+import liquibase.pro.packaged.N;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import pro.sky.telegrambot.TelegramBotApplication;
 import pro.sky.telegrambot.model.NotificationTask;
-import pro.sky.telegrambot.service.NotificationTaskService;
+import pro.sky.telegrambot.repository.NotificationTaskRepository;
 
 import javax.annotation.PostConstruct;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -28,8 +29,9 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
     @Autowired
     private TelegramBot telegramBot;
+
     @Autowired
-    private NotificationTaskService notificationTaskService;
+    private NotificationTaskRepository notificationTaskRepo;
 
     @PostConstruct
     public void init() {
@@ -52,6 +54,18 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
         });
         return UpdatesListener.CONFIRMED_UPDATES_ALL;
+    }
+
+//    ---- каждую минуту отправляет запрос в базу с пойскам задач для отправления
+//    ---- Если есть задачи вызывает метод sendMessage
+    @Scheduled(cron = "0 0/1 * * * *")
+    public void run() {
+        LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
+        List<NotificationTask> nowSendTasks = notificationTaskRepo.findBySendDate(now);
+
+        nowSendTasks.forEach(tasks -> {
+            sendMessage(tasks.getMessage(), tasks.getChatId());
+        });
     }
 
     private void handleStartCommand(Update update) {
@@ -85,19 +99,13 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
         }
 
         notificationTask.setChatId(update.message().chat().id());
-        notificationTaskService.save(notificationTask);
+        notificationTaskRepo.save(notificationTask);
     }
 
-
-    //    ----
+//    ---- Отправляет сообщения к указанному chatId
     private void sendMessage(String messageText, Long chatId) {
         SendMessage message = new SendMessage(chatId, messageText);
         SendResponse response = telegramBot.execute(message);
-    }
-
-    private void processMessage(Update update) {
-        String message = update.message().text();
-
     }
 
 }
